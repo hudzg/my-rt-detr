@@ -1,0 +1,18 @@
+r18
+uv run tools/infer.py -c configs/rtdetr/rtdetr_r18vd_6x_coco.yml -r rtdetr_r18vd_dec3_6x_coco_from_paddle.pth -f 000000000139.jpg -d cuda -s False
+uv run tools/infer_video.py -c configs/rtdetr/rtdetr_r18vd_6x_coco.yml -r rtdetr_r18vd_dec3_6x_coco_from_paddle.pth -i car-detection.mp4 -o output.mp4 -d cuda
+uv run tools/train.py -c configs/rtdetr/rtdetr_r18vd_6x_coco.yml -r rtdetr_r18vd_dec3_6x_coco_from_paddle.pth --test-only
+
+uv run tools/infer_with_labels.py -c configs/rtdetr/rtdetr_r18vd_6x_coco.yml -r rtdetr_r18vd_dec3_6x_coco_from_paddle.pth -f 000000000139.jpg -d cuda
+
+
+r50
+uv run tools/infer.py -c configs/rtdetr/rtdetr_r50vd_6x_coco.yml -r rtdetr_r50vd_6x_coco_from_paddle.pth -f 000000000139.jpg -d cuda
+
+uv run tools/infer_with_labels.py -c configs/rtdetr/rtdetr_r50vd_6x_coco.yml -r rtdetr_r50vd_6x_coco_from_paddle.pth -f 000000000139.jpg -d cuda
+
+uv run tools/infer_video_with_labels.py -c configs/rtdetr/rtdetr_r50vd_6x_coco.yml -r rtdetr_r50vd_6x_coco_from_paddle.pth -i car-detection.mp4 -o output.mp4 -d cuda
+
+cam
+
+uv run tools/infer_webcam_with_labels.py -c configs/rtdetr/rtdetr_r18vd_6x_coco.yml -r rtdetr_r18vd_dec3_6x_coco_from_paddle.pth --cam 0
