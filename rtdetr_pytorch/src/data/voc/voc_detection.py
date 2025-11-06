@@ -19,7 +19,7 @@ from ._dataset import DetDataset
 from .._misc import convert_to_tv_tensor
 from ...core import register
 
-@register()
+@register
 class VOCDetection(torchvision.datasets.VOCDetection, DetDataset):
     __inject__ = ['transforms', ]
 

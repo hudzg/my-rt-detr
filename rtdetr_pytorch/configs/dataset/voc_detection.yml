@@ -10,7 +10,7 @@ train_dataloader:
   type: DataLoader
   dataset:
     type: VOCDetection
-    root: ./dataset/voc/
+    root: ./dataset/voc/VOCdevkit/VOC2007/
     ann_file: trainval.txt
     label_file: label_list.txt
     transforms:
@@ -26,7 +26,7 @@ val_dataloader:
   type: DataLoader
   dataset:
     type: VOCDetection
-    root: ./dataset/voc/
+    root: ./dataset/voc/VOCdevkit/VOC2007/
     ann_file: test.txt
     label_file: label_list.txt
     transforms:
