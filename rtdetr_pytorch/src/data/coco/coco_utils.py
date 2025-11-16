@@ -1,3 +1,4 @@
+import copy
 import os
 
 import torch
@@ -119,6 +120,9 @@ def _coco_remove_images_without_annotations(dataset, cat_list=None):
 
 
 def convert_to_coco_api(ds):
+    if ds.transforms is not None:
+        print("Warning: convert_to_coco_api will remove resize dataset transforms.")
+        ds.transforms.transforms = ds.transforms.transforms[1:]
     coco_ds = COCO()
     # annotation IDs need to start at 1, not 0, see torchvision issue #1530
     ann_id = 1
@@ -183,6 +187,7 @@ def get_coco_api_from_dataset(dataset):
             dataset = dataset.dataset
     if isinstance(dataset, torchvision.datasets.CocoDetection):
         return dataset.coco
+    dataset = copy.deepcopy(dataset)
     return convert_to_coco_api(dataset)
 
 
