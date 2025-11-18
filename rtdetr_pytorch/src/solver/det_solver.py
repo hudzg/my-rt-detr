@@ -48,20 +48,46 @@ class DetSolver(BaseSolver):
                 for checkpoint_path in checkpoint_paths:
                     dist.save_on_master(self.state_dict(epoch), checkpoint_path)
 
-            module = self.ema.module if self.ema else self.model
-            test_stats, coco_evaluator = evaluate(
-                module, self.criterion, self.postprocessor, self.val_dataloader, base_ds, self.device, self.output_dir
-            )
+            # module = self.ema.module if self.ema else self.model
+            # test_stats, coco_evaluator = evaluate(
+            #     module, self.criterion, self.postprocessor, self.val_dataloader, base_ds, self.device, self.output_dir
+            # )
 
-            # TODO 
-            for k in test_stats.keys():
-                if k in best_stat:
-                    best_stat['epoch'] = epoch if test_stats[k][0] > best_stat[k] else best_stat['epoch']
-                    best_stat[k] = max(best_stat[k], test_stats[k][0])
-                else:
-                    best_stat['epoch'] = epoch
-                    best_stat[k] = test_stats[k][0]
-            print('best_stat: ', best_stat)
+            # # TODO 
+            # for k in test_stats.keys():
+            #     if k in best_stat:
+            #         best_stat['epoch'] = epoch if test_stats[k][0] > best_stat[k] else best_stat['epoch']
+            #         best_stat[k] = max(best_stat[k], test_stats[k][0])
+            #     else:
+            #         best_stat['epoch'] = epoch
+            #         best_stat[k] = test_stats[k][0]
+            # print('best_stat: ', best_stat)
+
+            # evaluate every 6 epochs
+            do_eval = (epoch % 6 == 0)
+
+            if do_eval:
+                module = self.ema.module if self.ema else self.model
+                test_stats, coco_evaluator = evaluate(
+                    module, self.criterion, self.postprocessor, self.val_dataloader, base_ds, self.device, self.output_dir
+                )
+
+                # update best stats
+                for k in test_stats.keys():
+                    if k in best_stat:
+                        if test_stats[k][0] > best_stat[k]:
+                            best_stat[k] = test_stats[k][0]
+                            best_stat['epoch'] = epoch
+                    else:
+                        best_stat[k] = test_stats[k][0]
+                        best_stat['epoch'] = epoch
+
+                print('best_stat: ', best_stat)
+
+            else:
+                # if skipping eval, create empty stats for logging
+                test_stats = {k: 0 for k in ['coco_eval_bbox', 'coco_eval_masks']}
+                coco_evaluator = None
 
 
             log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
