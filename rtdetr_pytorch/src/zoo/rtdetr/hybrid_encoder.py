@@ -110,6 +110,98 @@ class CSPRepLayer(nn.Module):
         x_1 = self.bottlenecks(x_1)
         x_2 = self.conv2(x)
         return self.conv3(x_1 + x_2)
+    
+class FFM(nn.Module):
+    def __init__(self, dim) -> None:
+        super().__init__()
+        self.dwconv1 = nn.Conv2d(dim, dim, 1, 1, groups=1)
+        self.dwconv2 = nn.Conv2d(dim, dim, 1, 1, groups=1)
+        self.alpha = nn.Parameter(torch.zeros(dim, 1, 1))
+        self.beta = nn.Parameter(torch.ones(dim, 1, 1))
+
+    def forward(self, x):
+        # res = x.clone()
+        fft_size = x.size()[2:]
+        x1 = self.dwconv1(x)
+        x2 = self.dwconv2(x)
+
+        x2_fft = torch.fft.fft2(x2.float(), norm='backward')
+
+        out = x1 * x2_fft
+
+        out = torch.fft.ifft2(out, dim=(-2,-1), norm='backward')
+        out = torch.abs(out)
+
+        return out * self.alpha + x * self.beta
+    
+class ImprovedFFTKernel(nn.Module):
+    def __init__(self, dim) -> None:
+        super().__init__()
+
+        ker = 31
+        pad = ker // 2
+        self.in_conv = nn.Sequential(
+            nn.Conv2d(dim, dim, kernel_size=1, padding=0, stride=1),
+            nn.GELU()
+        )
+        self.out_conv = nn.Conv2d(dim, dim, kernel_size=1, padding=0, stride=1)
+        self.dw_large = nn.Conv2d(dim, dim, kernel_size=ker, padding=pad, stride=1, groups=dim)
+        self.dw_11 = nn.Conv2d(dim, dim, kernel_size=1, padding=0, stride=1, groups=dim)
+
+        self.act = nn.SiLU()
+
+        self.conv1x1 = nn.Conv2d(dim, dim, kernel_size=1, padding=0, stride=1, groups=1, bias=True)
+        self.conv3x3 = nn.Conv2d(dim, dim, kernel_size=3, padding=1, stride=1, groups=dim, bias=True)
+        self.conv5x5 = nn.Conv2d(dim, dim, kernel_size=5, padding=2, stride=1, groups=dim, bias=True)
+
+        # self.pool = nn.AdaptiveAvgPool2d((1, 1))
+
+        self.fac_conv = nn.Conv2d(dim, dim, kernel_size=1, padding=0, stride=1, groups=1, bias=True)
+        self.fac_pool = nn.AdaptiveAvgPool2d((1, 1))
+        self.ffm = FFM(dim)
+
+        self.channel_attention = nn.Sequential(
+            nn.Conv2d(dim, dim, kernel_size=1, groups=dim, bias=True), 
+            nn.Sigmoid()
+        )
+
+    def forward(self, x):
+        out = self.in_conv(x)
+
+        x_att = self.fac_conv(self.fac_pool(out))
+        x_fft = torch.fft.fft2(out.float(), norm='backward')
+        x_fft = x_att * x_fft
+        x_fca = torch.fft.ifft2(x_fft, dim=(-2, -1), norm='backward')
+        x_fca = torch.abs(x_fca)
+
+        x_sca1 = self.conv1x1(x_fca)
+        x_sca2 = self.conv3x3(x_fca)
+        x_sca3 = self.conv5x5(x_fca)
+        x_sca = x_sca1 + x_sca2 + x_sca3
+
+        channel_weights = self.channel_attention(x_att)
+        x_sca = x_sca * channel_weights
+
+        x_sca = self.ffm(x_sca)
+
+        out = x + self.dw_large(out) + self.dw_11(out) + x_sca
+        out = self.act(out)
+        return self.out_conv(out)
+    
+class MFFF(nn.Module): 
+    def __init__(self, in_channels, out_channels, e=0.25):
+        super().__init__()
+        self.e = e
+        self.cv1 = ConvNormLayer(in_channels, in_channels, 1, 1)
+        self.m = ImprovedFFTKernel(int(in_channels * self.e))
+        self.cv2 = ConvNormLayer(in_channels, out_channels, 1, 1)
+
+    def forward(self, x):
+        c1 = round(x.size(1) * self.e)
+        c2 = x.size(1) - c1
+        fused = self.cv1(x)
+        ok_branch, identity = torch.split(fused, [c1, c2], dim=1)
+        return self.cv2(torch.cat((self.m(ok_branch), identity), 1))
 
 
 # transformer
@@ -235,9 +327,15 @@ class HybridEncoder(nn.Module):
         self.fpn_blocks = nn.ModuleList()
         for _ in range(len(in_channels) - 1, 0, -1):
             self.lateral_convs.append(ConvNormLayer(hidden_dim, hidden_dim, 1, 1, act=act))
-            self.fpn_blocks.append(
-                CSPRepLayer(hidden_dim * 2, hidden_dim, round(3 * depth_mult), act=act, expansion=expansion)
-            )
+
+            if _ == 1:
+                self.fpn_blocks.append(
+                    MFFF(hidden_dim * 2, hidden_dim)
+                )
+            else:
+                self.fpn_blocks.append(
+                    CSPRepLayer(hidden_dim * 2, hidden_dim, round(3 * depth_mult), act=act, expansion=expansion)
+                )   
 
         # bottom-up pan
         self.downsample_convs = nn.ModuleList()
