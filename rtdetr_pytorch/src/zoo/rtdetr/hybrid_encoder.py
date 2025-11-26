@@ -110,6 +110,52 @@ class CSPRepLayer(nn.Module):
         x_1 = self.bottlenecks(x_1)
         x_2 = self.conv2(x)
         return self.conv3(x_1 + x_2)
+    
+
+class RAU(nn.Module):
+    """Recalibrate Attention Unit (PAU) as described in paper."""
+    def __init__(self, channels=32):
+        super().__init__()
+        self.channels = channels
+        self.w_theta = nn.Conv2d(channels, channels, kernel_size=1, bias=False)
+        self.w_phi = nn.Conv2d(channels, channels, kernel_size=1, bias=False)
+
+    def forward(self, t1, t2):
+        # both t1, t2 must have same spatial size and same channels
+        t1_att = torch.sigmoid(self.w_theta(t1))
+        t2_att = torch.sigmoid(self.w_phi(t2))
+        out = t1_att * t1 + t2_att * t2 * (1.0 - t1_att) + t1
+        return out
+
+
+class SBA(nn.Module):
+    """
+    Spatial-Boundary Attention module:
+    - Upsamples Fs to Fb spatial size outside (or expect Fs already upsampled).
+    - Runs RAU(Fs_up, Fb) and RAU(Fb, Fs_up), concat and fuse with 3x3 conv.
+    Returns fused feature with out_channels (hidden_dim) and same spatial size as Fb.
+    """
+    def __init__(self, in_channels=32, out_channels=32):
+        super().__init__()
+        self.pau1 = RAU(in_channels)
+        self.pau2 = RAU(in_channels)
+        self.fuse_conv = nn.Sequential(
+            nn.Conv2d(in_channels * 2, out_channels, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True)
+        )
+
+    def forward(self, Fs, Fb):
+        # Upsample Fs to Fb's spatial size if necessary
+        if Fs.shape[2:] != Fb.shape[2:]:
+            Fs_up = F.interpolate(Fs, size=Fb.shape[2:], mode='bilinear', align_corners=False)
+        else:
+            Fs_up = Fs
+        p1 = self.pau1(Fs_up, Fb)
+        p2 = self.pau2(Fb, Fs_up)
+        concat = torch.cat([p1, p2], dim=1)
+        out = self.fuse_conv(concat)
+        return out
 
 
 # transformer
@@ -233,22 +279,26 @@ class HybridEncoder(nn.Module):
         # top-down fpn
         self.lateral_convs = nn.ModuleList()
         self.fpn_blocks = nn.ModuleList()
+        self.sba_modules = nn.ModuleList()
         for _ in range(len(in_channels) - 1, 0, -1):
             self.lateral_convs.append(ConvNormLayer(hidden_dim, hidden_dim, 1, 1, act=act))
             self.fpn_blocks.append(
-                CSPRepLayer(hidden_dim * 2, hidden_dim, round(3 * depth_mult), act=act, expansion=expansion)
+                CSPRepLayer(hidden_dim, hidden_dim, round(3 * depth_mult), act=act, expansion=expansion)
             )
+            self.sba_modules.append(SBA(in_channels=hidden_dim, out_channels=hidden_dim))
 
         # bottom-up pan
         self.downsample_convs = nn.ModuleList()
         self.pan_blocks = nn.ModuleList()
+        self.sba_pan_modules = nn.ModuleList()
         for _ in range(len(in_channels) - 1):
             self.downsample_convs.append(
                 ConvNormLayer(hidden_dim, hidden_dim, 3, 2, act=act)
             )
             self.pan_blocks.append(
-                CSPRepLayer(hidden_dim * 2, hidden_dim, round(3 * depth_mult), act=act, expansion=expansion)
+                CSPRepLayer(hidden_dim, hidden_dim, round(3 * depth_mult), act=act, expansion=expansion)
             )
+            self.sba_pan_modules.append(SBA(in_channels=hidden_dim, out_channels=hidden_dim))
 
         self._reset_parameters()
 
@@ -308,7 +358,8 @@ class HybridEncoder(nn.Module):
             feat_high = self.lateral_convs[len(self.in_channels) - 1 - idx](feat_high)
             inner_outs[0] = feat_high
             upsample_feat = F.interpolate(feat_high, scale_factor=2., mode='nearest')
-            inner_out = self.fpn_blocks[len(self.in_channels)-1-idx](torch.concat([upsample_feat, feat_low], dim=1))
+            fused = self.sba_modules[len(self.in_channels) - 1 - idx](upsample_feat, feat_low)
+            inner_out = self.fpn_blocks[len(self.in_channels)-1-idx](fused)
             inner_outs.insert(0, inner_out)
 
         outs = [inner_outs[0]]
@@ -316,7 +367,8 @@ class HybridEncoder(nn.Module):
             feat_low = outs[-1]
             feat_high = inner_outs[idx + 1]
             downsample_feat = self.downsample_convs[idx](feat_low)
-            out = self.pan_blocks[idx](torch.concat([downsample_feat, feat_high], dim=1))
+            fused = self.sba_pan_modules[idx](downsample_feat, feat_high)
+            out = self.pan_blocks[idx](fused)
             outs.append(out)
 
         return outs
