@@ -139,8 +139,17 @@ class SBA(nn.Module):
         super().__init__()
         self.pau1 = RAU(in_channels)
         self.pau2 = RAU(in_channels)
+
+
+        hidden_dim = in_channels * 2
+        
         self.fuse_conv = nn.Sequential(
-            nn.Conv2d(in_channels * 2, out_channels, kernel_size=3, padding=1, bias=False),
+            nn.Conv2d(hidden_dim, hidden_dim, kernel_size=3, padding=1, 
+                      groups=hidden_dim, bias=False),
+            nn.BatchNorm2d(hidden_dim),
+            nn.ReLU(inplace=True),
+            
+            nn.Conv2d(hidden_dim, out_channels, kernel_size=1, bias=False),
             nn.BatchNorm2d(out_channels),
             nn.ReLU(inplace=True)
         )
