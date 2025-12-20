@@ -139,6 +139,11 @@ class SBA(nn.Module):
         super().__init__()
         self.pau1 = RAU(in_channels)
         self.pau2 = RAU(in_channels)
+        self.fuse_conv = nn.Sequential(
+            nn.Conv2d(in_channels * 2, out_channels, kernel_size=1, bias=False), 
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True)
+        )
 
     def forward(self, Fs, Fb):
         # Upsample Fs to Fb's spatial size if necessary
@@ -148,7 +153,8 @@ class SBA(nn.Module):
             Fs_up = Fs
         p1 = self.pau1(Fs_up, Fb)
         p2 = self.pau2(Fb, Fs_up)
-        out = torch.cat([p1, p2], dim=1)
+        concat = torch.cat([p1, p2], dim=1)
+        out = self.fuse_conv(concat)
         return out
 
 
