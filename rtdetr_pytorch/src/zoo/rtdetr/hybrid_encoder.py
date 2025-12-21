@@ -140,7 +140,8 @@ class SBA(nn.Module):
         self.pau1 = RAU(in_channels)
         self.pau2 = RAU(in_channels)
         self.fuse_conv = nn.Sequential(
-            nn.Conv2d(in_channels * 2, out_channels, kernel_size=3, padding=1, bias=False),
+            nn.Conv2d(in_channels * 2, out_channels, kernel_size=3, padding=1, 
+                      groups=8, bias=False), 
             nn.BatchNorm2d(out_channels),
             nn.ReLU(inplace=True)
         )
