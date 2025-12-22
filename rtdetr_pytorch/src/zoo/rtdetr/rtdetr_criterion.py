@@ -18,6 +18,70 @@ from src.misc.dist import get_world_size, is_dist_available_and_initialized
 from src.core import register
 
 
+import math # Nhớ thêm import math nếu chưa có
+
+def trifocal_ciou_loss(boxes1, boxes2, iout=0.6, eps=1e-7):
+    """
+    Tính Tri-focal CIOU loss giữa 2 tập boxes đã được ghép cặp (matched).
+    Input: boxes1, boxes2 dạng (x1, y1, x2, y2)
+    Shape: [N, 4]
+    """
+    # 1. Tính toán các thông số cơ bản
+    b1_x1, b1_y1, b1_x2, b1_y2 = boxes1[:, 0], boxes1[:, 1], boxes1[:, 2], boxes1[:, 3]
+    b2_x1, b2_y1, b2_x2, b2_y2 = boxes2[:, 0], boxes2[:, 1], boxes2[:, 2], boxes2[:, 3]
+
+    # Intersection area
+    inter_rect_x1 = torch.max(b1_x1, b2_x1)
+    inter_rect_y1 = torch.max(b1_y1, b2_y1)
+    inter_rect_x2 = torch.min(b1_x2, b2_x2)
+    inter_rect_y2 = torch.min(b1_y2, b2_y2)
+    
+    inter_area = torch.clamp(inter_rect_x2 - inter_rect_x1, min=0) * \
+                 torch.clamp(inter_rect_y2 - inter_rect_y1, min=0)
+
+    # Union Area
+    w1, h1 = b1_x2 - b1_x1, b1_y2 - b1_y1
+    w2, h2 = b2_x2 - b2_x1, b2_y2 - b2_y1
+    union_area = (w1 * h1) + (w2 * h2) - inter_area + eps
+    
+    iou = inter_area / union_area
+
+    # 2. Tính CIOU components
+    # Smallest Enclosing Box (C)
+    c_x1 = torch.min(b1_x1, b2_x1)
+    c_y1 = torch.min(b1_y1, b2_y1)
+    c_x2 = torch.max(b1_x2, b2_x2)
+    c_y2 = torch.max(b1_y2, b2_y2)
+    c2 = (c_x2 - c_x1)**2 + (c_y2 - c_y1)**2 + eps
+
+    # Khoảng cách tâm (rho)
+    rho2 = ((b1_x1 + b1_x2 - b2_x1 - b2_x2) ** 2 + \
+            (b1_y1 + b1_y2 - b2_y1 - b2_y2) ** 2) / 4
+
+    # Aspect Ratio (v & alpha)
+    v = (4 / (math.pi ** 2)) * torch.pow(torch.atan(w2 / (h2 + eps)) - torch.atan(w1 / (h1 + eps)), 2)
+    with torch.no_grad():
+        alpha = v / ((1 - iou) + v + eps)
+
+    # CIOU
+    ciou = iou - (rho2 / c2) - (alpha * v)
+    l_ciou = 1.0 - ciou
+
+    # 3. Áp dụng trọng số Tri-focal (Equation 5)
+    # Mặc định là mẫu khó (weight = e)
+    weights = torch.full_like(iou, math.e)
+
+    # Mẫu trung bình: 1 - IOUT < IOU < IOUT
+    mask_medium = (iou > (1 - iout)) & (iou < iout)
+    weights[mask_medium] = math.exp(1 - iout)
+
+    # Mẫu dễ: IOU >= IOUT
+    mask_easy = iou >= iout
+    weights[mask_easy] = torch.exp(1 - iou[mask_easy])
+
+    # Final Weighted Loss
+    return weights * l_ciou
+
 
 @register
 class SetCriterion(nn.Module):
@@ -150,7 +214,7 @@ class SetCriterion(nn.Module):
         return losses
 
     def loss_boxes(self, outputs, targets, indices, num_boxes):
-        """Compute the losses related to the bounding boxes, the L1 regression loss and the GIoU loss
+        """Compute the losses related to the bounding boxes, the L1 regression loss and the GIoU/Tri-focal loss
            targets dicts must contain the key "boxes" containing a tensor of dim [nb_target_boxes, 4]
            The target boxes are expected in format (center_x, center_y, w, h), normalized by the image size.
         """
@@ -161,13 +225,25 @@ class SetCriterion(nn.Module):
 
         losses = {}
 
+        # 1. L1 Loss (Giữ nguyên)
         loss_bbox = F.l1_loss(src_boxes, target_boxes, reduction='none')
         losses['loss_bbox'] = loss_bbox.sum() / num_boxes
 
+        # 2. GIoU Loss (Code cũ - có thể giữ lại để so sánh)
         loss_giou = 1 - torch.diag(generalized_box_iou(
                 box_cxcywh_to_xyxy(src_boxes),
                 box_cxcywh_to_xyxy(target_boxes)))
         losses['loss_giou'] = loss_giou.sum() / num_boxes
+
+        # 3. [MỚI] Tri-focal CIOU Loss
+        # Cần chuyển đổi từ (cx, cy, w, h) sang (x1, y1, x2, y2) để tính toán
+        src_boxes_xyxy = box_cxcywh_to_xyxy(src_boxes)
+        target_boxes_xyxy = box_cxcywh_to_xyxy(target_boxes)
+        
+        # Gọi hàm tính toán đã viết ở trên (với IOUT = 0.6)
+        loss_trifocal = trifocal_ciou_loss(src_boxes_xyxy, target_boxes_xyxy, iout=0.6)
+        losses['loss_trifocal'] = loss_trifocal.sum() / num_boxes
+
         return losses
 
     def loss_masks(self, outputs, targets, indices, num_boxes):
