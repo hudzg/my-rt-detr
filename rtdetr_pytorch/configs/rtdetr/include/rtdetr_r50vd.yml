@@ -68,7 +68,7 @@ SetCriterion:
 
   matcher:
     type: HungarianMatcher
-    weight_dict: { cost_class: 2, cost_bbox: 5, cost_giou: 2 }
+    weight_dict: { cost_class: 2, cost_bbox: 5, cost_giou: 0, cost_trifocal: 1 }
     # use_focal_loss: True
     alpha: 0.25
     gamma: 2.0
