@@ -1,0 +1,42 @@
+task: detection
+
+evaluator:
+  type: CocoEvaluator
+  iou_types: ["bbox"]
+
+# KITTI có 8 class (Car, Van, Truck, Pedestrian, Person_sitting, Cyclist, Tram, Misc)
+num_classes: 8
+
+train_dataloader:
+  type: DataLoader
+  dataset:
+    type: KittiDetection        # Tên class python chúng ta vừa viết
+    root: ./dataset/kitti/         # Đường dẫn đến thư mục gốc chứa images/ và labels/
+    ann_file: train.txt         # File danh sách train
+    label_file: label_list.txt
+    transforms:
+      type: Compose
+      ops: ~
+  shuffle: True
+  num_workers: 16
+  batch_size: 32
+  drop_last: True
+  collate_fn:
+    type: BatchImageCollateFuncion
+
+val_dataloader:
+  type: DataLoader
+  dataset:
+    type: KittiDetection        # Tên class python chúng ta vừa viết
+    root: ./dataset/kitti/         # Đường dẫn đến thư mục gốc
+    ann_file: val.txt           # File danh sách validation
+    label_file: label_list.txt
+    transforms:
+      type: Compose
+      ops: ~
+  shuffle: False
+  num_workers: 16
+  batch_size: 64
+  drop_last: False
+  collate_fn:
+    type: BatchImageCollateFuncion
