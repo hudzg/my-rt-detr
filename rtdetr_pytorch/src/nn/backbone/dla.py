@@ -395,9 +395,16 @@ class DLA(nn.Module):
 
 
 def dla34(pretrained=True, levels=None, in_channels=None, **kwargs):  # DLA-34
+    # model = DLA(levels=levels, channels=in_channels, block=BasicBlock, **kwargs)
+    # if pretrained:
+    #     model.load_pretrained_model(data='imagenet', name='dla34', hash='ba72cf86')
+    # return model
+
+
+    # !gdown 1rB3fTgPXLOOGk9n8mw41EDpQ8ZoYopNj
     model = DLA(levels=levels, channels=in_channels, block=BasicBlock, **kwargs)
     if pretrained:
-        model.load_pretrained_model(data='imagenet', name='dla34', hash='ba72cf86')
+        model.load_pretrained_model(data='', name='dla34-ba72cf86.pth', hash='ba72cf86')
     return model
 
 @register
