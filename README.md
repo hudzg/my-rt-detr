@@ -1,83 +1,45 @@
-# RT-DETR PyTorch
+# TriDETR: An Effective End-to-End Object Detector
 
-Repo này là code của **RT-DETR (Real-Time Detection Transformer)** bằng **PyTorch**.
+This is the official implementation of **TriDETR: An effective end-to-end object detector**. 
 
----
+This repository is built upon the official [RT-DETR](https://github.com/lyuwenyu/RT-DETR) implementation (specifically the `main` branch). 
 
-## 🚀 Cài đặt & Thiết lập môi trường
-
-### 1️⃣ Di chuyển vào thư mục dự án
-
-```bash
-cd rtdetr_pytorch
-```
-
-### 2️⃣ Tạo môi trường ảo (Python 3.11)
-
-```bash
-uv venv --python 3.11
-```
-
-### 3️⃣ Kích hoạt môi trường ảo
-
-* **Windows:**
-
-```bash
-.venv\Scripts\activate
-```
-
-* **Linux/macOS:**
-
-```bash
-source .venv/bin/activate
-```
-
-### 4️⃣ Cài đặt các gói phụ thuộc
-
-```bash
-uv pip install -r requirements.txt
-```
+The code for our proposed TriDETR method is located in the **`rau-trifocal-fix`** branch.
 
 ---
 
-## 🧠 Ví dụ chạy mô hình
+## 🛠️ Installation
 
-### 🖼️ Dự đoán trên ảnh (ResNet-50 backbone)
+### Requirements
+- **Python:** 3.11
+
+### Setup Environment
+1. Clone this repository and checkout the proposed method branch:
+```bash
+git clone https://github.com/hudzg/my-rt-detr.git
+cd my-rt-detr/rtdetr_pytorch
+git checkout rau-trifocal-fix
+```
+Install the required dependencies:
 
 ```bash
-uv run tools/infer.py \
-  -c configs/rtdetr/rtdetr_r50vd_6x_coco.yml \
-  -r rtdetr_r50vd_6x_coco_from_paddle.pth \
-  -f 000000000139.jpg \
-  -d cuda
+pip install -r requirements.txt
+pip install numpy==1.26.4
 ```
 
-### 🏷️ Dự đoán trên ảnh (hiển thị nhãn)
+### Training
+To train the model, run the following command:
 
 ```bash
-uv run tools/infer_with_labels.py \
-  -c configs/rtdetr/rtdetr_r50vd_6x_coco.yml \
-  -r rtdetr_r50vd_6x_coco_from_paddle.pth \
-  -f 000000000139.jpg \
-  -d cuda
+python tools/train.py -c configs/rtdetr/rtdetr_r18vd_6x_voc.yml --amp --seed 1706
 ```
 
-### 🎥 Dự đoán trên video (hiển thị nhãn)
+### Inference / Evaluation
+To evaluate or run inference using a trained model checkpoint, use the --test-only flag.
 
 ```bash
-uv run tools/infer_video_with_labels.py \
-  -c configs/rtdetr/rtdetr_r50vd_6x_coco.yml \
-  -r rtdetr_r50vd_6x_coco_from_paddle.pth \
-  -i car-detection.mp4 \
-  -o output.mp4 \
-  -d cuda
+python tools/train.py -c configs/rtdetr/rtdetr_r18vd_6x_voc.yml -r output/rtdetr_r18vd_6x_voc/checkpoint0071.pth --test-only
 ```
 
-### 📸 Dự đoán trực tiếp qua webcam (ResNet-18 backbone)
-
-```bash
-uv run tools/infer_webcam_with_labels.py \
-  -c configs/rtdetr/rtdetr_r18vd_6x_coco.yml \
-  -r rtdetr_r18vd_dec3_6x_coco_from_paddle.pth \
-  --cam 0
-```
+### Acknowledgements
+This project is based on the excellent work from [RT-DETR](https://github.com/lyuwenyu/RT-DETR). We sincerely thank the authors for open-sourcing their code.
