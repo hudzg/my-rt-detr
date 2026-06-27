@@ -41,6 +41,8 @@ HybridEncoder:
   # eval
   eval_spatial_size: [640, 640]
 
+  use_sba: [True, True, True, True]
+
 RTDETRTransformer:
   feat_channels: [256, 256, 256]
   feat_strides: [8, 16, 32]

@@ -241,7 +241,8 @@ class HybridEncoder(nn.Module):
                  expansion=1.0,
                  depth_mult=1.0,
                  act='silu',
-                 eval_spatial_size=None):
+                 eval_spatial_size=None,
+                 use_sba=[True, True, True, True]):
         super().__init__()
         self.in_channels = in_channels
         self.feat_strides = feat_strides
@@ -250,6 +251,9 @@ class HybridEncoder(nn.Module):
         self.num_encoder_layers = num_encoder_layers
         self.pe_temperature = pe_temperature
         self.eval_spatial_size = eval_spatial_size
+
+        self.use_sba = use_sba
+        assert len(self.use_sba) == 4, "use_sba must be a list of 4 booleans"
 
         self.out_channels = [hidden_dim for _ in range(len(in_channels))]
         self.out_strides = feat_strides
@@ -280,25 +284,35 @@ class HybridEncoder(nn.Module):
         self.lateral_convs = nn.ModuleList()
         self.fpn_blocks = nn.ModuleList()
         self.sba_modules = nn.ModuleList()
-        for _ in range(len(in_channels) - 1, 0, -1):
+        for idx_inv in range(len(in_channels) - 1, 0, -1):
+            sba_idx = len(in_channels) - 1 - idx_inv
             self.lateral_convs.append(ConvNormLayer(hidden_dim, hidden_dim, 1, 1, act=act))
+            csp_in_channels = hidden_dim if self.use_sba[sba_idx] else hidden_dim * 2
             self.fpn_blocks.append(
-                CSPRepLayer(hidden_dim, hidden_dim, round(3 * depth_mult), act=act, expansion=expansion)
+                CSPRepLayer(csp_in_channels, hidden_dim, round(3 * depth_mult), act=act, expansion=expansion)
             )
-            self.sba_modules.append(SBA(in_channels=hidden_dim, out_channels=hidden_dim))
+            if self.use_sba[sba_idx]:
+                self.sba_modules.append(SBA(in_channels=hidden_dim, out_channels=hidden_dim))
+            else:
+                self.sba_modules.append(nn.Identity())
 
         # bottom-up pan
         self.downsample_convs = nn.ModuleList()
         self.pan_blocks = nn.ModuleList()
         self.sba_pan_modules = nn.ModuleList()
-        for _ in range(len(in_channels) - 1):
+        for idx in range(len(in_channels) - 1):
+            sba_idx = idx + 2
             self.downsample_convs.append(
                 ConvNormLayer(hidden_dim, hidden_dim, 3, 2, act=act)
             )
+            csp_in_channels = hidden_dim if self.use_sba[sba_idx] else hidden_dim * 2
             self.pan_blocks.append(
-                CSPRepLayer(hidden_dim, hidden_dim, round(3 * depth_mult), act=act, expansion=expansion)
+                CSPRepLayer(csp_in_channels, hidden_dim, round(3 * depth_mult), act=act, expansion=expansion)
             )
-            self.sba_pan_modules.append(SBA(in_channels=hidden_dim, out_channels=hidden_dim))
+            if self.use_sba[sba_idx]:
+                self.sba_pan_modules.append(SBA(in_channels=hidden_dim, out_channels=hidden_dim))
+            else:
+                self.sba_pan_modules.append(nn.Identity())
 
         self._reset_parameters()
 
@@ -358,7 +372,13 @@ class HybridEncoder(nn.Module):
             feat_high = self.lateral_convs[len(self.in_channels) - 1 - idx](feat_high)
             inner_outs[0] = feat_high
             upsample_feat = F.interpolate(feat_high, scale_factor=2., mode='nearest')
-            fused = self.sba_modules[len(self.in_channels) - 1 - idx](upsample_feat, feat_low)
+
+            sba_idx = len(self.in_channels) - 1 - idx
+            if self.use_sba[sba_idx]:
+                fused = self.sba_modules[sba_idx](upsample_feat, feat_low)
+            else:
+                fused = torch.cat([upsample_feat, feat_low], dim=1)
+
             inner_out = self.fpn_blocks[len(self.in_channels)-1-idx](fused)
             inner_outs.insert(0, inner_out)
 
@@ -367,7 +387,13 @@ class HybridEncoder(nn.Module):
             feat_low = outs[-1]
             feat_high = inner_outs[idx + 1]
             downsample_feat = self.downsample_convs[idx](feat_low)
-            fused = self.sba_pan_modules[idx](downsample_feat, feat_high)
+
+            sba_idx = idx + 2
+            if self.use_sba[sba_idx]:
+                fused = self.sba_pan_modules[idx](downsample_feat, feat_high)
+            else:
+                fused = torch.cat([downsample_feat, feat_high], dim=1)
+
             out = self.pan_blocks[idx](fused)
             outs.append(out)
 
