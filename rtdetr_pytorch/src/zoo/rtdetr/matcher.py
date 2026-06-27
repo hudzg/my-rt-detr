@@ -39,11 +39,18 @@ class HungarianMatcher(nn.Module):
         self.cost_class = weight_dict['cost_class']
         self.cost_bbox = weight_dict['cost_bbox']
         self.cost_giou = weight_dict['cost_giou']
-        self.cost_trifocal = weight_dict.get('cost_trifocal', 0)
 
         self.use_focal_loss = use_focal_loss
         self.alpha = alpha
         self.gamma = gamma
+
+        trifocal_cfg = weight_dict.get('cost_trifocal', 0)
+        if isinstance(trifocal_cfg, dict):
+            self.cost_trifocal = trifocal_cfg.get('weight', 0)
+            self.trifocal_iout = trifocal_cfg.get('iout', 0.6)
+        else:
+            self.cost_trifocal = trifocal_cfg
+            self.trifocal_iout = 0.6 # Mặc định
 
         assert self.cost_class != 0 or self.cost_bbox != 0 or self.cost_giou != 0 or self.cost_trifocal != 0, "all costs cant be 0"
 
@@ -100,7 +107,7 @@ class HungarianMatcher(nn.Module):
         cost_giou = -generalized_box_iou(box_cxcywh_to_xyxy(out_bbox), box_cxcywh_to_xyxy(tgt_bbox))
 
         # Compute the trifocal cost between boxes
-        cost_trifocal = trifocal_ciou_loss(box_cxcywh_to_xyxy(out_bbox), box_cxcywh_to_xyxy(tgt_bbox))
+        cost_trifocal = trifocal_ciou_loss(box_cxcywh_to_xyxy(out_bbox), box_cxcywh_to_xyxy(tgt_bbox), iout=self.trifocal_iout)
         
         # Final cost matrix
         C = self.cost_bbox * cost_bbox + self.cost_class * cost_class + self.cost_giou * cost_giou + self.cost_trifocal * cost_trifocal

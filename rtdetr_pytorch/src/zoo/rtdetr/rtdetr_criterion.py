@@ -52,6 +52,14 @@ class SetCriterion(nn.Module):
         self.alpha = alpha
         self.gamma = gamma
 
+        trifocal_cfg = self.weight_dict.get('loss_trifocal', 0)
+        
+        if isinstance(trifocal_cfg, dict):
+            self.trifocal_iout = trifocal_cfg.get('iout', 0.6)
+            self.weight_dict['loss_trifocal'] = trifocal_cfg.get('weight', 0)
+        else:
+            self.trifocal_iout = 0.6 # Mặc định
+
 
     def loss_labels(self, outputs, targets, indices, num_boxes, log=True):
         """Classification loss (NLL)
@@ -178,7 +186,7 @@ class SetCriterion(nn.Module):
         target_boxes_xyxy = box_cxcywh_to_xyxy(target_boxes)
         
         # Gọi hàm tính toán đã viết ở trên (với IOUT = 0.6)
-        loss_trifocal = torch.diag(trifocal_ciou_loss(src_boxes_xyxy, target_boxes_xyxy, iout=0.6))
+        loss_trifocal = torch.diag(trifocal_ciou_loss(src_boxes_xyxy, target_boxes_xyxy, iout=self.trifocal_iout))
         losses['loss_trifocal'] = loss_trifocal.sum() / num_boxes
 
         return losses

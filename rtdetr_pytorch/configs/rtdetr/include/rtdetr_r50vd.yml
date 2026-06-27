@@ -61,14 +61,26 @@ RTDETRPostProcessor:
   num_top_queries: 100
 
 SetCriterion:
-  weight_dict: { loss_vfl: 1, loss_bbox: 5, loss_giou: 0, "loss_trifocal": 1 }
+  weight_dict:
+    loss_vfl: 1
+    loss_bbox: 5
+    loss_giou: 0
+    loss_trifocal:
+      weight: 1
+      iout: 0.6
   losses: ["vfl", "boxes"]
   alpha: 0.75
   gamma: 2.0
 
   matcher:
     type: HungarianMatcher
-    weight_dict: { cost_class: 2, cost_bbox: 5, cost_giou: 0, cost_trifocal: 1 }
+    weight_dict:
+      cost_class: 2
+      cost_bbox: 5
+      cost_giou: 0
+      cost_trifocal:
+        weight: 1
+        iout: 0.6
     # use_focal_loss: True
     alpha: 0.25
     gamma: 2.0
