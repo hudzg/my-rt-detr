@@ -12,7 +12,7 @@ import torch.nn.functional as F
 import torchvision
 
 # from torchvision.ops import box_convert, generalized_box_iou
-from .box_ops import box_cxcywh_to_xyxy, box_iou, generalized_box_iou, trifocal_ciou_loss
+from .box_ops import box_cxcywh_to_xyxy, box_iou, generalized_box_iou, trifocal_ciou_loss, diou_loss
 
 from src.misc.dist import get_world_size, is_dist_available_and_initialized
 from src.core import register
@@ -166,20 +166,20 @@ class SetCriterion(nn.Module):
         loss_bbox = F.l1_loss(src_boxes, target_boxes, reduction='none')
         losses['loss_bbox'] = loss_bbox.sum() / num_boxes
 
-        # 2. GIoU Loss (Code cũ - có thể giữ lại để so sánh)
-        loss_giou = 1 - torch.diag(generalized_box_iou(
-                box_cxcywh_to_xyxy(src_boxes),
-                box_cxcywh_to_xyxy(target_boxes)))
-        losses['loss_giou'] = loss_giou.sum() / num_boxes
-
-        # 3. [MỚI] Tri-focal CIOU Loss
-        # Cần chuyển đổi từ (cx, cy, w, h) sang (x1, y1, x2, y2) để tính toán
         src_boxes_xyxy = box_cxcywh_to_xyxy(src_boxes)
         target_boxes_xyxy = box_cxcywh_to_xyxy(target_boxes)
-        
-        # Gọi hàm tính toán đã viết ở trên (với IOUT = 0.6)
+
+        # 2. GIoU Loss
+        loss_giou = 1 - torch.diag(generalized_box_iou(src_boxes_xyxy, target_boxes_xyxy))
+        losses['loss_giou'] = loss_giou.sum() / num_boxes
+
+        # 3. Tri-focal CIoU Loss
         loss_trifocal = torch.diag(trifocal_ciou_loss(src_boxes_xyxy, target_boxes_xyxy, iout=0.6))
         losses['loss_trifocal'] = loss_trifocal.sum() / num_boxes
+
+        # 4. DIoU Loss
+        loss_diou = torch.diag(diou_loss(src_boxes_xyxy, target_boxes_xyxy))
+        losses['loss_diou'] = loss_diou.sum() / num_boxes
 
         return losses
 

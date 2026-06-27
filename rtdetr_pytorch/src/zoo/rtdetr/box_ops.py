@@ -132,6 +132,54 @@ def trifocal_ciou_loss(boxes1, boxes2, iout=0.6, eps=1e-7):
     return weights * l_ciou
 
 
+def diou_loss(boxes1, boxes2, eps=1e-7):
+    """
+    Computes standard Pairwise DIOU loss between 2 sets of boxes.
+    Input: boxes1 [N, 4], boxes2 [M, 4] in (x1, y1, x2, y2) format
+    Returns: loss [N, M]
+    """
+    # 1. Basic parameters - Broadcast to [N, M]
+    # boxes1 -> [N, 1, 4]
+    b1_x1, b1_y1, b1_x2, b1_y2 = boxes1[:, 0].unsqueeze(1), boxes1[:, 1].unsqueeze(1), boxes1[:, 2].unsqueeze(1), boxes1[:, 3].unsqueeze(1)
+    # boxes2 -> [1, M, 4]
+    b2_x1, b2_y1, b2_x2, b2_y2 = boxes2[:, 0].unsqueeze(0), boxes2[:, 1].unsqueeze(0), boxes2[:, 2].unsqueeze(0), boxes2[:, 3].unsqueeze(0)
+
+    # Intersection area
+    inter_rect_x1 = torch.max(b1_x1, b2_x1)
+    inter_rect_y1 = torch.max(b1_y1, b2_y1)
+    inter_rect_x2 = torch.min(b1_x2, b2_x2)
+    inter_rect_y2 = torch.min(b1_y2, b2_y2)
+    
+    inter_area = torch.clamp(inter_rect_x2 - inter_rect_x1, min=0) * \
+                 torch.clamp(inter_rect_y2 - inter_rect_y1, min=0)
+
+    # Union Area
+    w1, h1 = b1_x2 - b1_x1, b1_y2 - b1_y1
+    w2, h2 = b2_x2 - b2_x1, b2_y2 - b2_y1
+    union_area = (w1 * h1) + (w2 * h2) - inter_area + eps
+    
+    iou = inter_area / union_area
+
+    # 2. Compute DIOU components
+    # Smallest Enclosing Box (C)
+    c_x1 = torch.min(b1_x1, b2_x1)
+    c_y1 = torch.min(b1_y1, b2_y1)
+    c_x2 = torch.max(b1_x2, b2_x2)
+    c_y2 = torch.max(b1_y2, b2_y2)
+    c2 = (c_x2 - c_x1)**2 + (c_y2 - c_y1)**2 + eps
+
+    # Center distance (rho)
+    rho2 = ((b1_x1 + b1_x2 - b2_x1 - b2_x2) ** 2 + \
+            (b1_y1 + b1_y2 - b2_y1 - b2_y2) ** 2) / 4
+
+    # DIOU
+    diou = iou - (rho2 / c2)
+    
+    # Standard DIOU Loss
+    l_diou = 1.0 - diou
+
+    return l_diou
+
 def masks_to_boxes(masks):
     """Compute the bounding boxes around the provided masks
 

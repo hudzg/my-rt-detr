@@ -11,7 +11,7 @@ import torch.nn.functional as F
 from scipy.optimize import linear_sum_assignment
 from torch import nn
 
-from .box_ops import box_cxcywh_to_xyxy, generalized_box_iou, trifocal_ciou_loss
+from .box_ops import box_cxcywh_to_xyxy, generalized_box_iou, trifocal_ciou_loss, diou_loss
 
 from src.core import register
 
@@ -40,12 +40,13 @@ class HungarianMatcher(nn.Module):
         self.cost_bbox = weight_dict['cost_bbox']
         self.cost_giou = weight_dict['cost_giou']
         self.cost_trifocal = weight_dict.get('cost_trifocal', 0)
+        self.cost_diou = weight_dict.get('cost_diou', 0)
 
         self.use_focal_loss = use_focal_loss
         self.alpha = alpha
         self.gamma = gamma
 
-        assert self.cost_class != 0 or self.cost_bbox != 0 or self.cost_giou != 0 or self.cost_trifocal != 0, "all costs cant be 0"
+        assert self.cost_class != 0 or self.cost_bbox != 0 or self.cost_giou != 0 or self.cost_trifocal != 0 or self.cost_diou != 0, "all costs cant be 0"
 
     @torch.no_grad()
     def forward(self, outputs, targets):
@@ -96,14 +97,27 @@ class HungarianMatcher(nn.Module):
         # Compute the L1 cost between boxes
         cost_bbox = torch.cdist(out_bbox, tgt_bbox, p=1)
 
-        # Compute the giou cost betwen boxes
-        cost_giou = -generalized_box_iou(box_cxcywh_to_xyxy(out_bbox), box_cxcywh_to_xyxy(tgt_bbox))
+        C = self.cost_bbox * cost_bbox + self.cost_class * cost_class
 
-        # Compute the trifocal cost between boxes
-        cost_trifocal = trifocal_ciou_loss(box_cxcywh_to_xyxy(out_bbox), box_cxcywh_to_xyxy(tgt_bbox))
+        if self.cost_giou != 0 or self.cost_trifocal != 0 or self.cost_diou != 0:
+            out_bbox_xyxy = box_cxcywh_to_xyxy(out_bbox)
+            tgt_bbox_xyxy = box_cxcywh_to_xyxy(tgt_bbox)
+
+            # 3. GIoU Cost
+            if self.cost_giou != 0:
+                cost_giou = -generalized_box_iou(out_bbox_xyxy, tgt_bbox_xyxy)
+                C = C + self.cost_giou * cost_giou
+
+            # 4. Tri-focal CIoU Cost
+            if self.cost_trifocal != 0:
+                cost_trifocal = trifocal_ciou_loss(out_bbox_xyxy, tgt_bbox_xyxy)
+                C = C + self.cost_trifocal * cost_trifocal
+
+            # 5. DIoU Cost
+            if self.cost_diou != 0:
+                cost_diou = diou_loss(out_bbox_xyxy, tgt_bbox_xyxy)
+                C = C + self.cost_diou * cost_diou
         
-        # Final cost matrix
-        C = self.cost_bbox * cost_bbox + self.cost_class * cost_class + self.cost_giou * cost_giou + self.cost_trifocal * cost_trifocal
         C = C.view(bs, num_queries, -1).cpu()
 
         sizes = [len(v["boxes"]) for v in targets]
