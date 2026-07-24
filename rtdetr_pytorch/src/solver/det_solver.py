@@ -39,11 +39,14 @@ class DetSolver(BaseSolver):
                 args.clip_max_norm, print_freq=args.log_step, ema=self.ema, scaler=self.scaler)
 
             self.lr_scheduler.step()
+
+            is_last_epoch = (epoch == args.epoches - 1)
             
             if self.output_dir:
-                checkpoint_paths = [self.output_dir / 'checkpoint.pth']
-                # extra checkpoint before LR drop and every 100 epochs
-                if (epoch + 1) % args.checkpoint_step == 0:
+                checkpoint_paths = []
+                
+                if (epoch + 1) % 12 == 0 or is_last_epoch:
+                    checkpoint_paths.append(self.output_dir / 'checkpoint.pth')
                     checkpoint_paths.append(self.output_dir / f'checkpoint{epoch:04}.pth')
                 for checkpoint_path in checkpoint_paths:
                     dist.save_on_master(self.state_dict(epoch), checkpoint_path)
@@ -64,7 +67,7 @@ class DetSolver(BaseSolver):
             # print('best_stat: ', best_stat)
 
             # evaluate every 6 epochs
-            do_eval = (epoch % 6 == 0)
+            do_eval = ((epoch + 1) % 12 == 0) or is_last_epoch
 
             if do_eval:
                 module = self.ema.module if self.ema else self.model
